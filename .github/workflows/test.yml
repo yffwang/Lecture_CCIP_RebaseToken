@@ -31,5 +31,8 @@ jobs:
       - name: Run Forge build
         run: forge build --sizes
 
-      - name: Run Forge tests
-        run: forge test -vvv
+      - name: Run unit and fuzz tests
+        run: forge test --match-path test/RebaseToken.t.sol -vvv
+
+      - name: Run invariant tests
+        run: forge test --match-path test/invariant/RebaseTokenInvariants.t.sol
