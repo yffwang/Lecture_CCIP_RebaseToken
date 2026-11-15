@@ -182,7 +182,7 @@ contract VaultTest is Test {
 
     function test_Deposit_RevertsOnZeroValue() public {
         vm.prank(alice);
-        vm.expectRevert("Vault_DepositAmountIsZero");
+        vm.expectRevert(Vault.Vault_DepositAmountIsZero.selector);
         vault.deposit();
     }
 
@@ -294,7 +294,7 @@ contract VaultTest is Test {
         uint256 balance = token.balanceOf(alice);
 
         vm.prank(alice);
-        vm.expectRevert(Vault.Vault_RedeemFailed.selector);
+        vm.expectRevert(abi.encodeWithSelector(Vault.Vault_RedeemFailed.selector, balance));
         vault.redeem(balance);
 
         // State must be unchanged after the revert.
@@ -341,17 +341,49 @@ contract VaultTest is Test {
         vault.redeem(1 ether + 1);
     }
 
-    /// @dev type(uint256).max makes the token burn the FULL interest-inclusive
-    ///      balance, but the vault then tries to send type(uint256).max ETH and
-    ///      always fails — so a full-redeem sentinel does not work on the vault.
-    function test_Redeem_TypeMaxAlwaysFails() public {
+    /// @dev The type(uint256).max sentinel is resolved in the vault to the caller's
+    ///      interest-inclusive balance, so "redeem everything" works end to end.
+    function test_Redeem_TypeMaxRedeemsFullBalance() public {
         _deposit(alice, 1 ether);
 
+        uint256 ethBefore = alice.balance;
         vm.prank(alice);
-        vm.expectRevert(Vault.Vault_RedeemFailed.selector);
         vault.redeem(type(uint256).max);
 
-        assertEq(token.balanceOf(alice), 1 ether);
+        assertEq(alice.balance, ethBefore + 1 ether);
+        assertEq(token.balanceOf(alice), 0);
+        assertEq(address(vault).balance, 0);
+    }
+
+    /// @dev With rewards covering accrued interest, the sentinel redeems the
+    ///      full interest-inclusive balance.
+    function test_Redeem_TypeMaxRedeemsInterestInclusiveBalanceWithRewards() public {
+        _deposit(alice, 1 ether);
+        vm.warp(vm.getBlockTimestamp() + ONE_DAY);
+        uint256 balance = token.balanceOf(alice);
+        _addRewards(balance - 1 ether);
+
+        uint256 ethBefore = alice.balance;
+        vm.prank(alice);
+        vault.redeem(type(uint256).max);
+
+        assertEq(alice.balance, ethBefore + balance);
+        assertEq(token.balanceOf(alice), 0);
+        assertEq(address(vault).balance, 0);
+    }
+
+    /// @dev Without sufficient ETH the sentinel still reverts — but now because
+    ///      the vault is illiquid, not because the sentinel itself is broken.
+    function test_Redeem_TypeMaxRevertsWhenVaultCannotCoverBalance() public {
+        _deposit(alice, 1 ether);
+        vm.warp(vm.getBlockTimestamp() + ONE_DAY);
+        uint256 balance = token.balanceOf(alice);
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(Vault.Vault_RedeemFailed.selector, balance));
+        vault.redeem(type(uint256).max);
+
+        assertEq(token.balanceOf(alice), balance);
         assertEq(address(vault).balance, 1 ether);
     }
 
@@ -361,7 +393,7 @@ contract VaultTest is Test {
         receiver.deposit{value: 1 ether}();
         assertEq(token.balanceOf(address(receiver)), 1 ether);
 
-        vm.expectRevert(Vault.Vault_RedeemFailed.selector);
+        vm.expectRevert(abi.encodeWithSelector(Vault.Vault_RedeemFailed.selector, 1 ether));
         receiver.redeem(1 ether);
 
         // Burn was rolled back together with the failed ETH transfer.
@@ -442,7 +474,7 @@ contract VaultTest is Test {
         // exit fails until rewards are added.
         uint256 bobBalance = token.balanceOf(bob);
         vm.prank(bob);
-        vm.expectRevert(Vault.Vault_RedeemFailed.selector);
+        vm.expectRevert(abi.encodeWithSelector(Vault.Vault_RedeemFailed.selector, bobBalance));
         vault.redeem(bobBalance);
 
         // Rewards covering both users' interest settle the pool exactly.
