@@ -1,0 +1,45 @@
+# GitLab CI pipeline for this Foundry project.
+# Equivalent of .github/workflows/test.yml — the two systems use different
+# syntax and GitLab ignores .github/workflows/, so this file lives here.
+#
+# No secrets or CI variables are required: the submodules under lib/ are
+# public, and gitlab.com shared runners pick this file up automatically.
+
+stages:
+  - test
+
+# Foundry ships as a Docker image, so there is no "Install Foundry" step:
+# every job below already has forge/cast/anvil on PATH.
+default:
+  image:
+    name: ghcr.io/foundry-rs/foundry:latest
+    # The foundry image sets ENTRYPOINT ["/bin/sh", "-c"], which conflicts
+    # with how GitLab passes the job script. Clearing it makes `script:`
+    # behave normally.
+    entrypoint: [""]
+
+# Equivalent of actions/checkout's `submodules: recursive`. Without this,
+# lib/forge-std and lib/openzeppelin-contracts are empty directories and
+# `forge build` fails with "File not found".
+variables:
+  GIT_SUBMODULE_STRATEGY: recursive
+
+forge_fmt:
+  stage: test
+  script:
+    - forge fmt --check
+
+forge_build:
+  stage: test
+  script:
+    - forge build --sizes
+
+forge_test:
+  stage: test
+  script:
+    - forge test --match-path test/RebaseToken.t.sol -vvv
+
+forge_invariant:
+  stage: test
+  script:
+    - forge test --match-path test/invariant/RebaseTokenInvariants.t.sol
